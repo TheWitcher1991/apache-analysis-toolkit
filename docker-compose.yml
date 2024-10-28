@@ -1,0 +1,23 @@
+name: toolkit-prod
+
+services:
+  postgres:
+    image: postgres:16-alpine
+
+  clickhouse:
+    image: yandex/clickhouse-server:21.3-alpine
+
+  pgadmin:
+    image: dpage/pgadmin4:8.11.0
+
+  superset:
+    image: apache/superset:latest
+
+  airflow:
+    image: apache/airflow:latest
+
+networks:
+  shared:
+    driver: bridge
+
+volumes:
