@@ -3,21 +3,153 @@ name: toolkit-prod
 services:
   postgres:
     image: postgres:16-alpine
+    container_name: postgres-service
+    environment:
+      POSTGRES_USER: guest
+      POSTGRES_PASSWORD: guest
+      POSTGRES_DB: test_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - shared
+    restart: always
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U $$POSTGRES_USER" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   clickhouse:
     image: yandex/clickhouse-server:21.3-alpine
+    container_name: clickhouse-service
+    environment:
+      CLICKHOUSE_USER: guest
+      CLICKHOUSE_PASSWORD: guest
+      CLICKHOUSE_DB: test_db
+      CLICKHOUSE_DEFAULT_PROFILE: default
+      CLICKHOUSE_LOG_LEVEL: "trace"
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    networks:
+      - shared
+    restart: always
+
+  redis:
+    image: ${IMAGE_NAME_REDIS}:${IMAGE_TAG_REDIS}
+    container_name: redis-service
+    volumes:
+      - redis_data:/data
+    networks:
+      - shared
+    restart: always
 
   pgadmin:
     image: dpage/pgadmin4:8.11.0
+    container_name: pgadmin-service
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@guest.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "8080:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - postgres
+    networks:
+      - shared
+    restart: always
 
   superset:
     image: apache/superset:latest
+    container_name: superset-service
+    environment:
+      SUPERSET_LOAD_EXAMPLES: "yes"
+      SUPERSET_SECRET_KEY: "supersecretkey"
+      SUPERSET_USERNAME: "admin"
+      SUPERSET_PASSWORD: "admin"
+    ports:
+      - "8088:8088"
+    volumes:
+      - superset_home:/app/superset_home
+    depends_on:
+      - postgres
+      - clickhouse
+      - redis
+    networks:
+      - shared
+    restart: always
 
   airflow:
     image: apache/airflow:latest
+    container_name: airflow-service
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://guest:guest@postgres/test_db
+      AIRFLOW__CORE__FERNET_KEY: 'supersecretfernetkey'
+      AIRFLOW__WEBSERVER__SECRET_KEY: 'supersecretkey'
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "True"
+      AIRFLOW__CORE__LOAD_EXAMPLES: "True"
+      AIRFLOW__WEBSERVER__WORKERS: 4
+      AIRFLOW__LOGGING__MAX_LOG_DAYS: 14
+    ports:
+      - "8081:8080"
+    volumes:
+      - airflow_dags:/opt/airflow/dags
+      - airflow_logs:/opt/airflow/logs
+      - airflow_plugins:/opt/airflow/plugins
+    depends_on:
+      - postgres
+    networks:
+      - shared
+    restart: always
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: prometheus-service
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+      - "--log.level=warn"
+    networks:
+      - shared
+    restart: always
+
+  grafana:
+    image: grafana/grafana:11.2.2
+    container_name: grafana-service
+    environment:
+      - GF_SECURITY_ADMIN_USER=guest
+      - GF_SECURITY_ADMIN_PASSWORD=guest
+      - GF_USERS_ALLOW_SIGN_UP=false
+    ports:
+      - "3000:3000"
+    networks:
+      - shared
+    depends_on:
+      - prometheus
+    restart: always
 
 networks:
   shared:
     driver: bridge
 
 volumes:
+  postgres_data:
+  clickhouse_data:
+  redis_data:
+  pgadmin_data:
+  superset_home:
+  airflow_dags:
+  airflow_logs:
+  airflow_plugins:
